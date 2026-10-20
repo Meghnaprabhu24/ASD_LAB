@@ -1,0 +1,89 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: proj
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: proj/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint with flake8
+        run: flake8 . --max-line-length=100
+
+      - name: Run unit tests
+        run: pytest -v
+
+  docker:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set image name (lowercase)
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/asd-devops-app" >> $GITHUB_ENV
+
+      - name: Build Docker image
+        run: docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest ./proj
+
+      - name: Smoke test container
+        run: |
+          docker run -d --name app -p 5000:5000 $IMAGE:latest
+          sleep 5
+          curl --fail http://localhost:5000/health
+          docker rm -f app
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Push image to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        run: |
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest
+
+  deploy:
+    needs: docker
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Set image name (lowercase)
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/asd-devops-app" >> $GITHUB_ENV
+
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Deploy (pull and run published image)
+        run: |
+          docker pull $IMAGE:latest
+          docker run -d --name deployed-app -p 5000:5000 $IMAGE:latest
+          sleep 5
+          curl --fail http://localhost:5000/health
+          echo "Deployment verified: app is healthy"
