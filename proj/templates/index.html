@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DevOps Task Manager</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:480px;margin:40px auto;padding:0 16px}
+li{display:flex;justify-content:space-between;padding:6px 0}
+.done span{text-decoration:line-through;color:#888}
+button{cursor:pointer}
+</style>
+</head>
+<body>
+<h1>DevOps Task Manager</h1>
+<input id="t" placeholder="New task"> <button onclick="add()">Add</button>
+<ul id="list" style="list-style:none;padding:0"></ul>
+<script>
+async function load(){
+  const r = await fetch('/api/tasks'); const d = await r.json();
+  const ul = document.getElementById('list'); ul.innerHTML='';
+  d.forEach(t=>{
+    const li=document.createElement('li'); if(t.done) li.className='done';
+    const s=document.createElement('span'); s.textContent=t.title;
+    const b=document.createElement('span');
+    const tg=document.createElement('button'); tg.textContent='Toggle'; tg.onclick=()=>act('PUT',t.id);
+    const del=document.createElement('button'); del.textContent='Delete'; del.onclick=()=>act('DELETE',t.id);
+    b.append(tg,' ',del); li.append(s,b); ul.append(li);
+  });
+}
+async function add(){
+  const i=document.getElementById('t');
+  await fetch('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:i.value})});
+  i.value=''; load();
+}
+async function act(m,id){ await fetch('/api/tasks/'+id,{method:m}); load(); }
+load();
+</script>
+</body>
+</html>
